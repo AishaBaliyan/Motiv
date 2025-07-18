@@ -1,45 +1,125 @@
-import { Tabs } from 'expo-router';
-import React from 'react';
-import { Platform } from 'react-native';
+import Checkbox from 'expo-checkbox';
+import React, { useState } from 'react';
+import {
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
-import { HapticTab } from '@/components/HapticTab';
-import { IconSymbol } from '@/components/ui/IconSymbol';
-import TabBarBackground from '@/components/ui/TabBarBackground';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-
-export default function TabLayout() {
-  const colorScheme = useColorScheme();
+export default function HomeScreen() {
+  const [isChecked, setChecked] = useState(false);
 
   return (
-    <Tabs
-      screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
-        headerShown: false,
-        tabBarButton: HapticTab,
-        tabBarBackground: TabBarBackground,
-        tabBarStyle: Platform.select({
-          ios: {
-            // Use a transparent background on iOS to show the blur effect
-            position: 'absolute',
-          },
-          default: {},
-        }),
-      }}>
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Home',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="explore"
-        options={{
-          title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
-        }}
-      />
-    </Tabs>
+    <View style={styles.container}>
+      <View style={styles.formContainer}>
+        <Text style={styles.heading}>Sign in</Text>
+        <Text style={styles.subheading}>Hi there! Nice to see you again.</Text>
+
+        <Text style={styles.label}>Email</Text>
+        <TextInput
+          placeholder="Enter your email"
+          placeholderTextColor="#888"
+          style={styles.input}
+          keyboardType="email-address"
+        />
+
+        <Text style={styles.label}>Password</Text>
+        <TextInput
+          placeholder="Enter your password"
+          placeholderTextColor="#888"
+          style={styles.input}
+          secureTextEntry
+        />
+
+        <View style={styles.checkboxContainer}>
+          <Checkbox
+            value={isChecked}
+            onValueChange={setChecked}
+            color={isChecked ? '#1E90FF' : undefined}
+          />
+          <Text style={styles.checkboxText}>
+            I agree to the{' '}
+            <Text style={styles.link}>Terms of Services</Text> and{' '}
+            <Text style={styles.link}>Privacy Policy</Text>
+          </Text>
+        </View>
+
+        <TouchableOpacity style={styles.button}>
+          <Text style={styles.buttonText}>Continue</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: 'black',
+    paddingTop: 60,
+    paddingHorizontal: 24,
+  },
+  formContainer: {
+    alignSelf: 'flex-start',
+    width: '90%',
+  },
+  heading: {
+    fontSize: 40,
+    fontWeight: 'bold',
+    color: '#1E90FF',
+    marginBottom: 8,
+  },
+  subheading: {
+    fontSize: 18,
+    color: '#1E90FF',
+    marginBottom: 32,
+  },
+  label: {
+    fontSize: 16,
+    color: '#1E90FF',
+    marginBottom: 8,
+    marginTop: 16,
+  },
+  input: {
+    backgroundColor: '#1a1a1a',
+    color: 'white',
+    paddingVertical: Platform.OS === 'ios' ? 16 : 12,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#333',
+    fontSize: 16,
+  },
+  checkboxContainer: {
+    flexDirection: 'row',
+    marginTop: 24,
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  checkboxText: {
+    color: 'white',
+    marginLeft: 8,
+    fontSize: 14,
+    flex: 1,
+    flexWrap: 'wrap',
+  },
+  link: {
+    color: '#1E90FF',
+    textDecorationLine: 'underline',
+  },
+  button: {
+    backgroundColor: '#1E90FF',
+    paddingVertical: 16,
+    borderRadius: 10,
+    marginTop: 32,
+    alignItems: 'center',
+  },
+  buttonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+});
