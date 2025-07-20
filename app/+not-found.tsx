@@ -1,74 +1,58 @@
-import React from 'react';
-import {
-  Platform,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { Link, Stack } from 'expo-router';
+import { StyleSheet, Text, View } from 'react-native';
 
-export default function HomeScreen() {
+export default function NotFoundScreen() {
   return (
-    <View style={styles.container}>
-      <View style={styles.formContainer}>
-        <Text style={styles.heading}>Sign in</Text>
-        <Text style={styles.subheading}>Hi there! Nice to see you again.</Text>
-
-        <Text style={styles.label}>Email</Text>
-        <TextInput
-          placeholder="Enter your email"
-          placeholderTextColor="#888"
-          style={styles.input}
-          keyboardType="email-address"
-        />
-
-        <Text style={styles.label}>Password</Text>
-        <TextInput
-          placeholder="Enter your password"
-          placeholderTextColor="#888"
-          style={styles.input}
-          secureTextEntry
-        />
+    <>
+      <Stack.Screen options={{ title: 'Oops!', headerShown: true }} />
+      <View style={styles.container}>
+        <Text style={styles.emoji}>🤔</Text>
+        <Text style={styles.title}>This screen doesn't exist.</Text>
+        <Text style={styles.message}>The page you're looking for cannot be found.</Text>
+        
+        <Link href="/" style={styles.link}>
+          <Text style={styles.linkText}>Go back to Sign In</Text>
+        </Link>
       </View>
-    </View>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: 'black',
+    alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 24,
+    padding: 20,
+    backgroundColor: 'black',
   },
-  formContainer: {
-    alignSelf: 'flex-end',
-    width: '80%',
+  emoji: {
+    fontSize: 60,
+    marginBottom: 20,
   },
-  heading: {
-    fontSize: 32,
+  title: {
+    fontSize: 24,
     fontWeight: 'bold',
-    color: 'white',
-    marginBottom: 8,
+    color: '#1E90FF',
+    marginBottom: 10,
+    textAlign: 'center',
   },
-  subheading: {
+  message: {
     fontSize: 16,
-    color: '#aaa',
-    marginBottom: 24,
+    color: '#888',
+    marginBottom: 30,
+    textAlign: 'center',
   },
-  label: {
-    fontSize: 14,
-    color: '#ccc',
-    marginBottom: 6,
-    marginTop: 12,
+  link: {
+    marginTop: 15,
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    backgroundColor: '#1E90FF',
+    borderRadius: 10,
   },
-  input: {
-    backgroundColor: '#1a1a1a',
+  linkText: {
+    fontSize: 16,
     color: 'white',
-    paddingVertical: Platform.OS === 'ios' ? 14 : 10,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#333',
+    fontWeight: '600',
   },
 });
