@@ -1,22 +1,48 @@
 {
   "expo": {
-    "name": "Motiv",
-    "slug": "Motiv",
+    "name": "Motiv Tracker",
+    "slug": "motiv",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "motiv",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "main": "expo-router/entry",
+    "splash": {
+      "image": "./assets/images/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#000000"
+    },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.motiv.tracker",
+      "config": {
+        "googleMapsApiKey": "AIzaSyDubaapzfKkCiu2AFvHOqA-kAuAkwU8g-4"
+      },
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "This app needs access to your location to track your position on the map.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs access to your location to track your position on the map.",
+        "NSLocationAlwaysUsageDescription": "This app needs access to your location to track your position on the map."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#000000"
       },
-      "edgeToEdgeEnabled": true
+      "package": "com.motiv.tracker",
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyDubaapzfKkCiu2AFvHOqA-kAuAkwU8g-4"
+        }
+      },
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -26,17 +52,27 @@
     "plugins": [
       "expo-router",
       [
-        "expo-splash-screen",
+        "expo-location",
         {
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
-          "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
+          "locationAlwaysAndWhenInUsePermission": "Allow Motiv to use your location to track your position on the map.",
+          "locationAlwaysPermission": "Allow Motiv to use your location to track your position on the map.",
+          "locationWhenInUsePermission": "Allow Motiv to use your location to track your position on the map.",
+          "isIosBackgroundLocationEnabled": false,
+          "isAndroidBackgroundLocationEnabled": false,
+          "isAndroidForegroundServiceEnabled": true
         }
       ]
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "your-project-id-here"
+      }
     }
   }
 }

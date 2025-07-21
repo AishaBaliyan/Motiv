@@ -29,7 +29,7 @@ export default function SuccessScreen() {
 
   const handleUpgrade = (plan: 'monthly' | 'yearly') => {
     // Handle upgrade logic here
-    const price = plan === 'monthly' ? '$9.99/month' : '$79.99/year';
+    const price = plan === 'monthly' ? '$3.99/month' : '$29.99/year';
     Alert.alert(
       "Premium Upgrade",
       `Starting your 7-day free trial for the ${plan} plan (${price} after trial).`,

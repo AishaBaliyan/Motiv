@@ -1,83 +1,359 @@
+import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
+import { DeviceMotion } from 'expo-sensors';
 import { useEffect, useRef, useState } from 'react';
-import { Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import { Alert, Dimensions, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import MapView, { Circle, Marker, PROVIDER_GOOGLE, Region } from 'react-native-maps';
 
 const { width, height } = Dimensions.get('window');
+
+// Type definitions
+interface LocationCoordinate {
+  latitude: number;
+  longitude: number;
+}
+
+interface WeatherInfo {
+  temp: number;
+  condition: string;
+}
+
+interface DriveLockStatus {
+  isActive: boolean;
+  appsBlocked: boolean;
+  brakePedalPressed: boolean;
+  seatbeltFastened: boolean;
+  distanceFromCar: number;
+  phoneOrientation: string;
+  engineRunning: boolean;
+  parkingTimer: number;
+}
+
+interface SafetyAlert {
+  id: string;
+  type: 'warning' | 'danger' | 'info';
+  message: string;
+  timestamp: Date;
+}
 
 export default function TrackerScreen() {
   const router = useRouter();
   const mapRef = useRef<MapView>(null);
   
-  // Route coordinates (San Francisco to Oakland)
-  const route = [
-    { latitude: 37.7749, longitude: -122.4194 }, // San Francisco
-    { latitude: 37.7849, longitude: -122.4094 },
-    { latitude: 37.7949, longitude: -122.3994 },
-    { latitude: 37.8049, longitude: -122.3894 },
-    { latitude: 37.8149, longitude: -122.3794 },
-    { latitude: 37.8249, longitude: -122.3694 },
-    { latitude: 37.8349, longitude: -122.3594 },
-    { latitude: 37.8449, longitude: -122.3494 },
-    { latitude: 37.8549, longitude: -122.3394 },
-    { latitude: 37.8649, longitude: -122.3294 },
-    { latitude: 37.8044, longitude: -122.2711 }, // Oakland
-  ];
-
-  // Tracker state
-  const [progress, setProgress] = useState(0);
-  const [currentPosition, setCurrentPosition] = useState(route[0]);
-  const [region, setRegion] = useState({
-    latitude: 37.8149,
-    longitude: -122.3494,
-    latitudeDelta: 0.2,
-    longitudeDelta: 0.2,
+  // Location state with proper types
+  const [userLocation, setUserLocation] = useState<LocationCoordinate | null>(null);
+  const [carLocation, setCarLocation] = useState<LocationCoordinate | null>(null);
+  const [region, setRegion] = useState<Region>({
+    latitude: 37.7749,
+    longitude: -122.4194,
+    latitudeDelta: 0.01,
+    longitudeDelta: 0.01,
   });
-  const [isMoving, setIsMoving] = useState(true);
-  const [speed, setSpeed] = useState(65);
-  const [distance, setDistance] = useState(0);
-  const [eta, setEta] = useState("15 min");
-  const [weather] = useState({ temp: 72, condition: "☀️ Sunny" });
-  const [time, setTime] = useState(new Date().toLocaleTimeString());
+  const [locationPermission, setLocationPermission] = useState<boolean>(false);
+  const [isTracking, setIsTracking] = useState<boolean>(false);
+  const [speed, setSpeed] = useState<number>(0);
+  const [accuracy, setAccuracy] = useState<number>(0);
+  const [weather] = useState<WeatherInfo>({ temp: 72, condition: "☀️ Sunny" });
+  const [time, setTime] = useState<string>(new Date().toLocaleTimeString());
+  const [locationSubscription, setLocationSubscription] = useState<Location.LocationSubscription | null>(null);
 
-  // Animate car movement
+  // DriveLock features
+  const [driveLock, setDriveLock] = useState<DriveLockStatus>({
+    isActive: false,
+    appsBlocked: false,
+    brakePedalPressed: false,
+    seatbeltFastened: false,
+    distanceFromCar: 0,
+    phoneOrientation: 'upright',
+    engineRunning: false,
+    parkingTimer: 0,
+  });
+
+  const [safetyAlerts, setSafetyAlerts] = useState<SafetyAlert[]>([]);
+  const [blockedApps] = useState<string[]>(['Instagram', 'TikTok', 'Snapchat', 'Twitter', 'Facebook']);
+  const [audioLevel, setAudioLevel] = useState<number>(0);
+  const [motionData, setMotionData] = useState<any>(null);
+
+  // Request location permission and start tracking
   useEffect(() => {
-    if (isMoving && progress < 100) {
-      const interval = setInterval(() => {
-        setProgress(prev => {
-          const newProgress = Math.min(prev + 2, 100);
-          const routeIndex = Math.floor((newProgress / 100) * (route.length - 1));
-          setCurrentPosition(route[Math.min(routeIndex, route.length - 1)]);
-          
-          if (newProgress >= 100) {
-            setIsMoving(false);
-            setEta("Arrived!");
-            return 100;
-          }
-          return newProgress;
-        });
-        setDistance(prev => prev + 0.3);
-        setSpeed(Math.floor(Math.random() * 20) + 55);
-      }, 500);
-      return () => clearInterval(interval);
-    }
-  }, [isMoving, progress]);
+    requestLocationPermission();
+    startMotionTracking();
+    
+    // Cleanup subscription on unmount
+    return () => {
+      if (locationSubscription) {
+        locationSubscription.remove();
+      }
+      DeviceMotion.removeAllListeners();
+    };
+  }, []);
 
   // Update time
   useEffect(() => {
     const interval = setInterval(() => {
       setTime(new Date().toLocaleTimeString());
+      updateDriveLockStatus();
     }, 1000);
     return () => clearInterval(interval);
   }, []);
 
-  // Update ETA
+  // Parking timer effect
   useEffect(() => {
-    if (isMoving && progress < 100) {
-      const remainingMin = Math.max(1, Math.floor((100 - progress) / 7));
-      setEta(`${remainingMin} min`);
+    if (driveLock.parkingTimer > 0 && speed === 0) {
+      const timer = setTimeout(() => {
+        setDriveLock(prev => ({
+          ...prev,
+          parkingTimer: prev.parkingTimer - 1,
+          appsBlocked: prev.parkingTimer > 1
+        }));
+      }, 1000);
+      return () => clearTimeout(timer);
     }
-  }, [progress, isMoving]);
+  }, [driveLock.parkingTimer, speed]);
+
+  const startMotionTracking = () => {
+    DeviceMotion.setUpdateInterval(1000);
+    DeviceMotion.addListener((motionData) => {
+      setMotionData(motionData);
+      updatePhoneOrientation(motionData);
+    });
+  };
+
+  const updatePhoneOrientation = (motion: any) => {
+    if (!motion?.rotation) return;
+    
+    const { beta, gamma } = motion.rotation;
+    let orientation = 'upright';
+    
+    if (Math.abs(beta) > 1.5) orientation = 'tilted-forward';
+    if (Math.abs(gamma) > 1.5) orientation = 'tilted-sideways';
+    if (beta > 2.5) orientation = 'facing-driver';
+    
+    setDriveLock(prev => ({ ...prev, phoneOrientation: orientation }));
+  };
+
+  const updateDriveLockStatus = () => {
+    // Simulate various sensors and conditions
+    const isMoving = speed > 0;
+    const engineSound = Math.random() * 100;
+    setAudioLevel(engineSound);
+    
+    setDriveLock(prev => {
+      const newStatus = { ...prev };
+      
+      // Engine detection based on speed and audio
+      newStatus.engineRunning = isMoving || engineSound > 60;
+      
+      // Distance simulation (in real app, this would use actual sensors)
+      if (carLocation && userLocation) {
+        const distance = calculateDistance(userLocation, carLocation);
+        newStatus.distanceFromCar = distance;
+      }
+      
+      // App blocking logic
+      const shouldBlockApps = 
+        newStatus.isActive && 
+        isMoving && 
+        newStatus.seatbeltFastened && 
+        newStatus.distanceFromCar < 3;
+      
+      if (shouldBlockApps !== newStatus.appsBlocked) {
+        newStatus.appsBlocked = shouldBlockApps;
+        addSafetyAlert(
+          shouldBlockApps ? 'danger' : 'info',
+          shouldBlockApps ? 'Apps blocked - Driving detected' : 'Apps unblocked - Safe to use'
+        );
+      }
+      
+      // Set parking timer when stopped
+      if (isMoving && newStatus.parkingTimer === 0) {
+        // Reset timer when starting to move
+      } else if (!isMoving && newStatus.parkingTimer === 0 && newStatus.appsBlocked) {
+        newStatus.parkingTimer = 120; // 2 minutes
+      }
+      
+      // Check for safety violations
+      checkSafetyViolations(newStatus);
+      
+      return newStatus;
+    });
+  };
+
+  const calculateDistance = (pos1: LocationCoordinate, pos2: LocationCoordinate): number => {
+    const R = 6371e3; // Earth's radius in meters
+    const φ1 = pos1.latitude * Math.PI/180;
+    const φ2 = pos2.latitude * Math.PI/180;
+    const Δφ = (pos2.latitude-pos1.latitude) * Math.PI/180;
+    const Δλ = (pos2.longitude-pos1.longitude) * Math.PI/180;
+
+    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+              Math.cos(φ1) * Math.cos(φ2) *
+              Math.sin(Δλ/2) * Math.sin(Δλ/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+    return R * c; // Distance in meters
+  };
+
+  const checkSafetyViolations = (status: DriveLockStatus) => {
+    if (status.phoneOrientation === 'facing-driver' && speed > 0) {
+      addSafetyAlert('warning', 'Phone facing driver while moving - Potential distraction');
+    }
+    
+    if (!status.brakePedalPressed && speed > 30) {
+      addSafetyAlert('info', 'Cruising detected - Apps remain blocked');
+    }
+    
+    if (status.distanceFromCar > 3 && status.appsBlocked) {
+      addSafetyAlert('info', 'Far from vehicle - Apps will unblock soon');
+    }
+  };
+
+  const addSafetyAlert = (type: 'warning' | 'danger' | 'info', message: string) => {
+    const alert: SafetyAlert = {
+      id: Math.random().toString(),
+      type,
+      message,
+      timestamp: new Date()
+    };
+    
+    setSafetyAlerts(prev => [alert, ...prev.slice(0, 4)]); // Keep last 5 alerts
+  };
+
+  const requestLocationPermission = async (): Promise<void> => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      
+      if (status !== 'granted') {
+        Alert.alert(
+          'Permission Denied',
+          'Location permission is required for DriveLock to function properly.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
+      setLocationPermission(true);
+      startLocationTracking();
+    } catch (error) {
+      console.error('Error requesting location permission:', error);
+      Alert.alert('Error', 'Failed to request location permission');
+    }
+  };
+
+  const startLocationTracking = async (): Promise<void> => {
+    try {
+      setIsTracking(true);
+
+      // Get initial location
+      const initialLocation = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+
+      const { latitude, longitude } = initialLocation.coords;
+      const newLocation: LocationCoordinate = { latitude, longitude };
+      
+      setUserLocation(newLocation);
+      // Set car location slightly offset for demonstration
+      setCarLocation({
+        latitude: latitude + 0.0001,
+        longitude: longitude + 0.0001
+      });
+      
+      setSpeed(Math.round((initialLocation.coords.speed || 0) * 2.237)); // Convert m/s to mph
+      setAccuracy(Math.round(initialLocation.coords.accuracy || 0));
+
+      // Update map region to user location
+      const newRegion: Region = {
+        latitude,
+        longitude,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
+      };
+      setRegion(newRegion);
+      mapRef.current?.animateToRegion(newRegion, 1000);
+
+      // Start watching location changes
+      const subscription = await Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.High,
+          timeInterval: 1000, // Update every second
+          distanceInterval: 1, // Update every meter
+        },
+        (location: Location.LocationObject) => {
+          const { latitude, longitude } = location.coords;
+          const newLocation: LocationCoordinate = { latitude, longitude };
+          
+          setUserLocation(newLocation);
+          setSpeed(Math.round((location.coords.speed || 0) * 2.237)); // Convert m/s to mph
+          setAccuracy(Math.round(location.coords.accuracy || 0));
+        }
+      );
+
+      setLocationSubscription(subscription);
+    } catch (error) {
+      console.error('Error getting location:', error);
+      Alert.alert('Error', 'Failed to get your location');
+      setIsTracking(false);
+    }
+  };
+
+  const stopLocationTracking = (): void => {
+    setIsTracking(false);
+    if (locationSubscription) {
+      locationSubscription.remove();
+      setLocationSubscription(null);
+    }
+  };
+
+  const centerOnUser = (): void => {
+    if (userLocation) {
+      const newRegion: Region = {
+        ...userLocation,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
+      };
+      mapRef.current?.animateToRegion(newRegion, 1000);
+    }
+  };
+
+  const toggleDriveLock = () => {
+    setDriveLock(prev => ({ 
+      ...prev, 
+      isActive: !prev.isActive,
+      appsBlocked: false,
+      parkingTimer: 0
+    }));
+    addSafetyAlert('info', `DriveLock ${!driveLock.isActive ? 'enabled' : 'disabled'}`);
+  };
+
+  const simulateSensorChange = (sensor: string) => {
+    setDriveLock(prev => {
+      const newStatus = { ...prev };
+      switch (sensor) {
+        case 'brake':
+          newStatus.brakePedalPressed = !prev.brakePedalPressed;
+          break;
+        case 'seatbelt':
+          newStatus.seatbeltFastened = !prev.seatbeltFastened;
+          break;
+      }
+      return newStatus;
+    });
+  };
+
+  // Helper function to get alert style - FIXES THE TYPESCRIPT ERROR
+  const getAlertStyle = (alertType: 'warning' | 'danger' | 'info') => {
+    switch (alertType) {
+      case 'danger':
+        return styles.alertDanger;
+      case 'warning':
+        return styles.alertWarning;
+      case 'info':
+        return styles.alertInfo;
+      default:
+        return styles.alertInfo;
+    }
+  };
 
   // Dark map style
   const mapStyle = [
@@ -114,18 +390,6 @@ export default function TrackerScreen() {
     }
   ];
 
-  const handleReset = () => {
-    setProgress(0);
-    setDistance(0);
-    setIsMoving(true);
-    setCurrentPosition(route[0]);
-    mapRef.current?.animateToRegion({
-      ...region,
-      latitude: 37.8149,
-      longitude: -122.3494,
-    }, 1000);
-  };
-
   return (
     <View style={styles.container}>
       {/* Map Section */}
@@ -134,57 +398,51 @@ export default function TrackerScreen() {
           ref={mapRef}
           style={styles.map}
           region={region}
-          onRegionChangeComplete={setRegion}
+          onRegionChangeComplete={(newRegion: Region) => setRegion(newRegion)}
           customMapStyle={mapStyle}
           provider={PROVIDER_GOOGLE}
+          showsUserLocation={false}
+          showsMyLocationButton={false}
         >
-          {/* Route line */}
-          <Polyline
-            coordinates={route}
-            strokeColor="#666"
-            strokeWidth={3}
-          />
-          
-          {/* Completed route */}
-          <Polyline
-            coordinates={route.slice(0, Math.floor((progress / 100) * route.length))}
-            strokeColor="#1E90FF"
-            strokeWidth={4}
-          />
+          {/* User location marker */}
+          {userLocation && (
+            <Marker
+              coordinate={userLocation}
+              title="Your Location"
+              description="Current position"
+              anchor={{ x: 0.5, y: 0.5 }}
+            >
+              <View style={styles.userMarker}>
+                <View style={[styles.userDot, { backgroundColor: driveLock.appsBlocked ? '#E74C3C' : '#1E90FF' }]} />
+                {isTracking && <View style={styles.pulse} />}
+              </View>
+            </Marker>
+          )}
 
-          {/* Start marker */}
-          <Marker
-            coordinate={route[0]}
-            title="Start"
-            description="San Francisco"
-          >
-            <View style={styles.markerContainer}>
-              <Text style={styles.markerText}>A</Text>
-            </View>
-          </Marker>
+          {/* Car location marker */}
+          {carLocation && (
+            <Marker
+              coordinate={carLocation}
+              title="Vehicle"
+              description="Car location"
+              anchor={{ x: 0.5, y: 0.5 }}
+            >
+              <View style={styles.carMarker}>
+                <Text style={styles.carIcon}>🚗</Text>
+              </View>
+            </Marker>
+          )}
 
-          {/* End marker */}
-          <Marker
-            coordinate={route[route.length - 1]}
-            title="Destination"
-            description="Oakland"
-          >
-            <View style={[styles.markerContainer, styles.endMarker]}>
-              <Text style={styles.markerText}>B</Text>
-            </View>
-          </Marker>
-
-          {/* Car marker */}
-          <Marker
-            coordinate={currentPosition}
-            title="Current Location"
-            anchor={{ x: 0.5, y: 0.5 }}
-          >
-            <View style={styles.carMarker}>
-              <Text style={styles.carIcon}>🚗</Text>
-              {isMoving && <View style={styles.pulse} />}
-            </View>
-          </Marker>
+          {/* 3-meter safety zone */}
+          {carLocation && (
+            <Circle
+              center={carLocation}
+              radius={3}
+              strokeColor="rgba(231, 76, 60, 0.5)"
+              fillColor="rgba(231, 76, 60, 0.1)"
+              strokeWidth={2}
+            />
+          )}
         </MapView>
 
         {/* Top Info Bar */}
@@ -198,117 +456,152 @@ export default function TrackerScreen() {
           </View>
         </View>
 
-        {/* Route Progress Bar */}
-        <View style={styles.progressContainer}>
-          <View style={styles.progressBar}>
-            <View style={[styles.progressFill, { width: `${progress}%` }]} />
-          </View>
-          <Text style={styles.progressText}>{progress}% Complete</Text>
+        {/* DriveLock Status */}
+        <View style={styles.driveLockStatus}>
+          <View style={[styles.statusIndicator, { 
+            backgroundColor: driveLock.isActive ? (driveLock.appsBlocked ? '#E74C3C' : '#F39C12') : '#666'
+          }]} />
+          <Text style={styles.statusText}>
+            {driveLock.isActive ? (driveLock.appsBlocked ? 'APPS BLOCKED' : 'DRIVELOCK ACTIVE') : 'DRIVELOCK OFF'}
+          </Text>
         </View>
       </View>
 
       {/* Main Content */}
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Trip Info Card */}
-        <View style={styles.tripCard}>
-          <Text style={styles.tripTitle}>Current Trip</Text>
+        {/* DriveLock Control */}
+        <View style={styles.driveLockCard}>
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardTitle}>🔒 DriveLock System</Text>
+            <Switch
+              value={driveLock.isActive}
+              onValueChange={toggleDriveLock}
+              trackColor={{ false: '#666', true: '#1E90FF' }}
+              thumbColor={driveLock.isActive ? '#fff' : '#f4f3f4'}
+            />
+          </View>
           
-          <View style={styles.locationRow}>
-            <View style={styles.locationDot} />
-            <View style={styles.locationInfo}>
-              <Text style={styles.locationLabel}>From</Text>
-              <Text style={styles.locationAddress}>Market St, San Francisco</Text>
+          {driveLock.parkingTimer > 0 && (
+            <View style={styles.timerContainer}>
+              <Text style={styles.timerText}>
+                🅿️ Parking Timer: {Math.floor(driveLock.parkingTimer / 60)}:{(driveLock.parkingTimer % 60).toString().padStart(2, '0')}
+              </Text>
             </View>
-          </View>
+          )}
+        </View>
 
-          <View style={styles.routeDots}>
-            <View style={styles.dot} />
-            <View style={styles.dot} />
-            <View style={styles.dot} />
+        {/* Safety Sensors Grid */}
+        <View style={styles.sensorsGrid}>
+          <View style={styles.sensorCard}>
+            <Text style={styles.sensorIcon}>⚡</Text>
+            <Text style={styles.sensorValue}>{speed}</Text>
+            <Text style={styles.sensorLabel}>mph</Text>
           </View>
+          
+          <TouchableOpacity 
+            style={[styles.sensorCard, driveLock.brakePedalPressed && styles.sensorActive]}
+            onPress={() => simulateSensorChange('brake')}
+          >
+            <Text style={styles.sensorIcon}>🦶</Text>
+            <Text style={styles.sensorValue}>{driveLock.brakePedalPressed ? 'ON' : 'OFF'}</Text>
+            <Text style={styles.sensorLabel}>brake pedal</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[styles.sensorCard, driveLock.seatbeltFastened && styles.sensorActive]}
+            onPress={() => simulateSensorChange('seatbelt')}
+          >
+            <Text style={styles.sensorIcon}>🔒</Text>
+            <Text style={styles.sensorValue}>{driveLock.seatbeltFastened ? 'ON' : 'OFF'}</Text>
+            <Text style={styles.sensorLabel}>seatbelt</Text>
+          </TouchableOpacity>
+        </View>
 
-          <View style={styles.locationRow}>
-            <View style={[styles.locationDot, styles.destinationDot]} />
-            <View style={styles.locationInfo}>
-              <Text style={styles.locationLabel}>To</Text>
-              <Text style={styles.locationAddress}>Oakland, CA</Text>
-            </View>
+        {/* Advanced Sensors */}
+        <View style={styles.advancedSensors}>
+          <View style={styles.sensorRow}>
+            <Text style={styles.sensorRowLabel}>📱 Phone Orientation:</Text>
+            <Text style={[styles.sensorRowValue, 
+              driveLock.phoneOrientation === 'facing-driver' && styles.dangerText
+            ]}>
+              {driveLock.phoneOrientation.replace('-', ' ')}
+            </Text>
+          </View>
+          
+          <View style={styles.sensorRow}>
+            <Text style={styles.sensorRowLabel}>📏 Distance from Car:</Text>
+            <Text style={[styles.sensorRowValue,
+              driveLock.distanceFromCar < 3 && styles.dangerText
+            ]}>
+              {driveLock.distanceFromCar.toFixed(1)}m
+            </Text>
+          </View>
+          
+          <View style={styles.sensorRow}>
+            <Text style={styles.sensorRowLabel}>🔊 Engine Audio:</Text>
+            <Text style={styles.sensorRowValue}>{audioLevel.toFixed(0)}dB</Text>
+          </View>
+          
+          <View style={styles.sensorRow}>
+            <Text style={styles.sensorRowLabel}>🎯 GPS Accuracy:</Text>
+            <Text style={styles.sensorRowValue}>{accuracy}m</Text>
           </View>
         </View>
 
-        {/* Stats Grid */}
-        <View style={styles.statsGrid}>
-          <View style={styles.statCard}>
-            <Text style={styles.statIcon}>⚡</Text>
-            <Text style={styles.statValue}>{speed}</Text>
-            <Text style={styles.statLabel}>mph</Text>
-          </View>
-          
-          <View style={styles.statCard}>
-            <Text style={styles.statIcon}>📍</Text>
-            <Text style={styles.statValue}>{distance.toFixed(1)}</Text>
-            <Text style={styles.statLabel}>miles</Text>
-          </View>
-          
-          <View style={styles.statCard}>
-            <Text style={styles.statIcon}>⏱️</Text>
-            <Text style={styles.statValue}>{eta}</Text>
-            <Text style={styles.statLabel}>ETA</Text>
-          </View>
-        </View>
-
-        {/* Nearby Places */}
-        <View style={styles.nearbyContainer}>
-          <Text style={styles.sectionTitle}>Nearby Places</Text>
-          
-          <TouchableOpacity style={styles.placeCard}>
-            <Text style={styles.placeIcon}>⛽</Text>
-            <View style={styles.placeInfo}>
-              <Text style={styles.placeName}>Shell Gas Station</Text>
-              <Text style={styles.placeDistance}>0.8 mi • $4.29/gal</Text>
+        {/* Blocked Apps */}
+        {driveLock.appsBlocked && (
+          <View style={styles.blockedAppsCard}>
+            <Text style={styles.cardTitle}>🚫 Blocked Apps</Text>
+            <View style={styles.appsList}>
+              {blockedApps.map((app, index) => (
+                <View key={index} style={styles.appItem}>
+                  <Text style={styles.appName}>{app}</Text>
+                  <Text style={styles.blockedIcon}>🔒</Text>
+                </View>
+              ))}
             </View>
-          </TouchableOpacity>
+          </View>
+        )}
 
-          <TouchableOpacity style={styles.placeCard}>
-            <Text style={styles.placeIcon}>☕</Text>
-            <View style={styles.placeInfo}>
-              <Text style={styles.placeName}>Starbucks</Text>
-              <Text style={styles.placeDistance}>1.2 mi • Open until 9 PM</Text>
+        {/* Safety Alerts */}
+        <View style={styles.alertsContainer}>
+          <Text style={styles.cardTitle}>⚠️ Safety Alerts</Text>
+          {safetyAlerts.map((alert) => (
+            <View key={alert.id} style={[styles.alertCard, getAlertStyle(alert.type)]}>
+              <Text style={styles.alertText}>{alert.message}</Text>
+              <Text style={styles.alertTime}>{alert.timestamp.toLocaleTimeString()}</Text>
             </View>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.placeCard}>
-            <Text style={styles.placeIcon}>🍔</Text>
-            <View style={styles.placeInfo}>
-              <Text style={styles.placeName}>In-N-Out Burger</Text>
-              <Text style={styles.placeDistance}>2.5 mi • Drive-thru open</Text>
-            </View>
-          </TouchableOpacity>
+          ))}
+          {safetyAlerts.length === 0 && (
+            <Text style={styles.noAlertsText}>No recent alerts</Text>
+          )}
         </View>
 
         {/* Control Buttons */}
         <View style={styles.controls}>
-          {isMoving ? (
+          {isTracking ? (
             <TouchableOpacity 
-              style={[styles.controlButton, styles.pauseButton]}
-              onPress={() => setIsMoving(false)}
+              style={[styles.controlButton, styles.stopButton]}
+              onPress={stopLocationTracking}
             >
-              <Text style={styles.controlButtonText}>⏸️ Pause Trip</Text>
+              <Text style={styles.controlButtonText}>⏹️ Stop Tracking</Text>
             </TouchableOpacity>
           ) : (
             <TouchableOpacity 
-              style={[styles.controlButton, styles.resumeButton]}
-              onPress={() => progress < 100 && setIsMoving(true)}
+              style={[styles.controlButton, styles.startButton]}
+              onPress={startLocationTracking}
+              disabled={!locationPermission}
             >
-              <Text style={styles.controlButtonText}>▶️ Resume Trip</Text>
+              <Text style={styles.controlButtonText}>▶️ Start Tracking</Text>
             </TouchableOpacity>
           )}
 
           <TouchableOpacity 
-            style={[styles.controlButton, styles.resetButton]}
-            onPress={handleReset}
+            style={[styles.controlButton, styles.centerButton]}
+            onPress={centerOnUser}
+            disabled={!userLocation}
           >
-            <Text style={styles.controlButtonText}>🔄 Reset</Text>
+            <Text style={styles.controlButtonText}>🎯 Center Map</Text>
           </TouchableOpacity>
         </View>
 
@@ -337,23 +630,25 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  markerContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#1E90FF',
+  userMarker: {
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  userDot: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#1E90FF',
     borderWidth: 3,
     borderColor: 'white',
   },
-  endMarker: {
-    backgroundColor: '#4CAF50',
-  },
-  markerText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
+  pulse: {
+    position: 'absolute',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(30, 144, 255, 0.3)',
+    zIndex: -1,
   },
   carMarker: {
     alignItems: 'center',
@@ -362,13 +657,6 @@ const styles = StyleSheet.create({
   carIcon: {
     fontSize: 24,
     textAlign: 'center',
-  },
-  pulse: {
-    position: 'absolute',
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(30, 144, 255, 0.3)',
   },
   topBar: {
     position: 'absolute',
@@ -406,33 +694,34 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  progressContainer: {
+  driveLockStatus: {
     position: 'absolute',
     bottom: 20,
     left: 20,
-    right: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#333',
   },
-  progressBar: {
+  statusIndicator: {
+    width: 8,
     height: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
     borderRadius: 4,
-    marginBottom: 8,
+    marginRight: 8,
   },
-  progressFill: {
-    height: '100%',
-    backgroundColor: '#1E90FF',
-    borderRadius: 4,
-  },
-  progressText: {
+  statusText: {
     color: 'white',
     fontSize: 12,
-    textAlign: 'center',
+    fontWeight: 'bold',
   },
   content: {
     flex: 1,
     padding: 20,
   },
-  tripCard: {
+  driveLockCard: {
     backgroundColor: '#1a1a1a',
     borderRadius: 16,
     padding: 20,
@@ -440,112 +729,149 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#333',
   },
-  tripTitle: {
-    color: 'white',
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 20,
-  },
-  locationRow: {
+  cardHeader: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
   },
-  locationDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#1E90FF',
-    marginRight: 12,
-  },
-  destinationDot: {
-    backgroundColor: '#4CAF50',
-  },
-  locationInfo: {
-    flex: 1,
-  },
-  locationLabel: {
-    color: '#888',
-    fontSize: 12,
-    marginBottom: 4,
-  },
-  locationAddress: {
-    color: 'white',
-    fontSize: 16,
-  },
-  routeDots: {
-    marginLeft: 5,
-    marginVertical: 8,
-  },
-  dot: {
-    width: 2,
-    height: 2,
-    backgroundColor: '#444',
-    borderRadius: 1,
-    marginVertical: 2,
-  },
-  statsGrid: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 20,
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: '#1a1a1a',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#333',
-  },
-  statIcon: {
-    fontSize: 24,
-    marginBottom: 8,
-  },
-  statValue: {
-    color: 'white',
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 4,
-  },
-  statLabel: {
-    color: '#888',
-    fontSize: 12,
-  },
-  nearbyContainer: {
-    marginBottom: 20,
-  },
-  sectionTitle: {
+  cardTitle: {
     color: 'white',
     fontSize: 20,
     fontWeight: 'bold',
     marginBottom: 16,
   },
-  placeCard: {
+  timerContainer: {
+    backgroundColor: '#2a2a2a',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 10,
+  },
+  timerText: {
+    color: '#F39C12',
+    fontSize: 16,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  sensorsGrid: {
     flexDirection: 'row',
-    alignItems: 'center',
+    gap: 12,
+    marginBottom: 20,
+  },
+  sensorCard: {
+    flex: 1,
     backgroundColor: '#1a1a1a',
     borderRadius: 12,
     padding: 16,
-    marginBottom: 12,
+    alignItems: 'center',
     borderWidth: 1,
     borderColor: '#333',
   },
-  placeIcon: {
+  sensorActive: {
+    borderColor: '#2ECC71',
+    backgroundColor: '#1a2e1a',
+  },
+  sensorIcon: {
     fontSize: 24,
-    marginRight: 16,
+    marginBottom: 8,
   },
-  placeInfo: {
-    flex: 1,
-  },
-  placeName: {
+  sensorValue: {
     color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 18,
+    fontWeight: 'bold',
     marginBottom: 4,
   },
-  placeDistance: {
+  sensorLabel: {
+    color: '#888',
+    fontSize: 10,
+    textAlign: 'center',
+  },
+  advancedSensors: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  sensorRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  sensorRowLabel: {
     color: '#888',
     fontSize: 14,
+  },
+  sensorRowValue: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  dangerText: {
+    color: '#E74C3C',
+  },
+  blockedAppsCard: {
+    backgroundColor: '#2a1a1a',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#E74C3C',
+  },
+  appsList: {
+    gap: 8,
+  },
+  appItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#1a1a1a',
+    padding: 12,
+    borderRadius: 8,
+  },
+  appName: {
+    color: 'white',
+    fontSize: 16,
+  },
+  blockedIcon: {
+    fontSize: 16,
+  },
+  alertsContainer: {
+    marginBottom: 20,
+  },
+  alertCard: {
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 8,
+    borderLeftWidth: 4,
+  },
+  alertDanger: {
+    backgroundColor: '#2a1a1a',
+    borderLeftColor: '#E74C3C',
+  },
+  alertWarning: {
+    backgroundColor: '#2a2a1a',
+    borderLeftColor: '#F39C12',
+  },
+  alertInfo: {
+    backgroundColor: '#1a1a2a',
+    borderLeftColor: '#3498DB',
+  },
+  alertText: {
+    color: 'white',
+    fontSize: 14,
+    marginBottom: 4,
+  },
+  alertTime: {
+    color: '#888',
+    fontSize: 12,
+  },
+  noAlertsText: {
+    color: '#888',
+    fontSize: 14,
+    textAlign: 'center',
+    fontStyle: 'italic',
   },
   controls: {
     flexDirection: 'row',
@@ -558,13 +884,13 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: 'center',
   },
-  pauseButton: {
-    backgroundColor: '#E74C3C',
-  },
-  resumeButton: {
+  startButton: {
     backgroundColor: '#2ECC71',
   },
-  resetButton: {
+  stopButton: {
+    backgroundColor: '#E74C3C',
+  },
+  centerButton: {
     backgroundColor: '#3498DB',
   },
   controlButtonText: {

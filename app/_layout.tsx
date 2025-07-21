@@ -40,7 +40,8 @@ export default function RootLayout() {
       <Stack.Screen 
         name="blank" 
         options={{ 
-          headerShown: false 
+          title: 'Location Tracker',
+          headerBackTitle: 'Back'
         }} 
       />
     </Stack>
