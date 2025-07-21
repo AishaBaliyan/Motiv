@@ -1,8 +1,19 @@
 import { useRouter } from 'expo-router';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import PremiumModal from '../components/PremiumModal';
 
 export default function SuccessScreen() {
   const router = useRouter();
+  const [showPremium, setShowPremium] = useState(false);
+
+  // Show premium modal after 1.5 seconds
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowPremium(true);
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, []);
 
   const handleGoBack = () => {
     router.back();
@@ -14,6 +25,24 @@ export default function SuccessScreen() {
 
   const handleGoToBlank = () => {
     router.push('/blank');
+  };
+
+  const handleUpgrade = (plan: 'monthly' | 'yearly') => {
+    // Handle upgrade logic here
+    const price = plan === 'monthly' ? '$9.99/month' : '$79.99/year';
+    Alert.alert(
+      "Premium Upgrade",
+      `Starting your 7-day free trial for the ${plan} plan (${price} after trial).`,
+      [
+        {
+          text: "Continue",
+          onPress: () => {
+            setShowPremium(false);
+            // Here you would implement actual payment processing
+          }
+        }
+      ]
+    );
   };
 
   return (
@@ -42,14 +71,21 @@ export default function SuccessScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity 
-            style={[styles.button, styles.blankButton]}
+            style={[styles.button, styles.trackerButton]}
             onPress={handleGoToBlank}
             activeOpacity={0.8}
           >
-            <Text style={styles.buttonText}>Go to Blank Page</Text>
+            <Text style={styles.buttonText}>Open Tracker 🗺️</Text>
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Premium Modal */}
+      <PremiumModal
+        visible={showPremium}
+        onClose={() => setShowPremium(false)}
+        onUpgrade={handleUpgrade}
+      />
     </View>
   );
 }
@@ -115,7 +151,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  blankButton: {
-    backgroundColor: '#333',
+  trackerButton: {
+    backgroundColor: '#2ECC71',
   },
 });
