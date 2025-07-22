@@ -2,29 +2,54 @@ import Checkbox from 'expo-checkbox';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Alert,
+    KeyboardAvoidingView,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 
-export default function HomeScreen() {
+export default function SignUpScreen() {
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [isChecked, setChecked] = useState(false);
   const router = useRouter();
 
-  const handleContinue = () => {
+  const handleSignUp = () => {
+    // Basic validation
+    if (!firstName || !lastName || !email || !password || !confirmPassword) {
+      Alert.alert('Error', 'Please fill in all fields');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      Alert.alert('Error', 'Passwords do not match');
+      return;
+    }
+
+    if (!isChecked) {
+      Alert.alert('Error', 'Please agree to the Terms of Service and Privacy Policy');
+      return;
+    }
+
+    if (password.length < 6) {
+      Alert.alert('Error', 'Password must be at least 6 characters');
+      return;
+    }
+
     // Navigate to success page
     router.push('/success');
   };
 
-  const handleSignUp = () => {
-    router.push('/signup');
+  const handleSignIn = () => {
+    router.push('/');
   };
 
   return (
@@ -37,8 +62,36 @@ export default function HomeScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.formContainer}>
-          <Text style={styles.heading}>Sign in</Text>
-          <Text style={styles.subheading}>Hi there! Nice to see you again.</Text>
+          <Text style={styles.heading}>Create Account</Text>
+          <Text style={styles.subheading}>Join Motiv and start driving safely!</Text>
+
+          <View style={styles.nameRow}>
+            <View style={styles.nameField}>
+              <Text style={styles.label}>First Name</Text>
+              <TextInput
+                placeholder="First name"
+                placeholderTextColor="#888"
+                style={styles.input}
+                value={firstName}
+                onChangeText={setFirstName}
+                autoCapitalize="words"
+                autoCorrect={false}
+              />
+            </View>
+            
+            <View style={styles.nameField}>
+              <Text style={styles.label}>Last Name</Text>
+              <TextInput
+                placeholder="Last name"
+                placeholderTextColor="#888"
+                style={styles.input}
+                value={lastName}
+                onChangeText={setLastName}
+                autoCapitalize="words"
+                autoCorrect={false}
+              />
+            </View>
+          </View>
 
           <Text style={styles.label}>Email</Text>
           <TextInput
@@ -54,12 +107,24 @@ export default function HomeScreen() {
 
           <Text style={styles.label}>Password</Text>
           <TextInput
-            placeholder="Enter your password"
+            placeholder="Create a password"
             placeholderTextColor="#888"
             style={styles.input}
             secureTextEntry
             value={password}
             onChangeText={setPassword}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+
+          <Text style={styles.label}>Confirm Password</Text>
+          <TextInput
+            placeholder="Confirm your password"
+            placeholderTextColor="#888"
+            style={styles.input}
+            secureTextEntry
+            value={confirmPassword}
+            onChangeText={setConfirmPassword}
             autoCapitalize="none"
             autoCorrect={false}
           />
@@ -80,16 +145,16 @@ export default function HomeScreen() {
 
           <TouchableOpacity
             style={styles.button}
-            onPress={handleContinue}
+            onPress={handleSignUp}
             activeOpacity={0.8}
           >
-            <Text style={styles.buttonText}>Continue</Text>
+            <Text style={styles.buttonText}>Create Account</Text>
           </TouchableOpacity>
 
-          <View style={styles.signUpContainer}>
-            <Text style={styles.signUpText}>Don't have an account? </Text>
-            <TouchableOpacity onPress={handleSignUp}>
-              <Text style={styles.signUpLink}>Sign Up</Text>
+          <View style={styles.signInContainer}>
+            <Text style={styles.signInText}>Already have an account? </Text>
+            <TouchableOpacity onPress={handleSignIn}>
+              <Text style={styles.signInLink}>Sign In</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -122,6 +187,14 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: '#1E90FF',
     marginBottom: 32,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+  },
+  nameField: {
+    flex: 1,
   },
   label: {
     fontSize: 16,
@@ -168,16 +241,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  signUpContainer: {
+  signInContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
     marginTop: 24,
   },
-  signUpText: {
+  signInText: {
     color: '#888',
     fontSize: 16,
   },
-  signUpLink: {
+  signInLink: {
     color: '#1E90FF',
     fontSize: 16,
     fontWeight: '600',

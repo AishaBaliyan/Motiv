@@ -21,17 +21,15 @@ interface WeatherInfo {
 interface DriveLockStatus {
   isActive: boolean;
   appsBlocked: boolean;
-  brakePedalPressed: boolean;
-  seatbeltFastened: boolean;
   distanceFromCar: number;
   phoneOrientation: string;
-  engineRunning: boolean;
   parkingTimer: number;
+  emergencyOverride: boolean;
 }
 
 interface SafetyAlert {
   id: string;
-  type: 'warning' | 'danger' | 'info';
+  type: 'warning' | 'danger' | 'info' | 'emergency';
   message: string;
   timestamp: Date;
 }
@@ -61,18 +59,16 @@ export default function TrackerScreen() {
   const [driveLock, setDriveLock] = useState<DriveLockStatus>({
     isActive: false,
     appsBlocked: false,
-    brakePedalPressed: false,
-    seatbeltFastened: false,
     distanceFromCar: 0,
     phoneOrientation: 'upright',
-    engineRunning: false,
     parkingTimer: 0,
+    emergencyOverride: false,
   });
 
   const [safetyAlerts, setSafetyAlerts] = useState<SafetyAlert[]>([]);
   const [blockedApps] = useState<string[]>(['Instagram', 'TikTok', 'Snapchat', 'Twitter', 'Facebook']);
-  const [audioLevel, setAudioLevel] = useState<number>(0);
   const [motionData, setMotionData] = useState<any>(null);
+  const [overrideTimer, setOverrideTimer] = useState<number>(0);
 
   // Request location permission and start tracking
   useEffect(() => {
@@ -104,12 +100,29 @@ export default function TrackerScreen() {
         setDriveLock(prev => ({
           ...prev,
           parkingTimer: prev.parkingTimer - 1,
-          appsBlocked: prev.parkingTimer > 1
+          appsBlocked: prev.parkingTimer > 1 && !prev.emergencyOverride
         }));
       }, 1000);
       return () => clearTimeout(timer);
     }
   }, [driveLock.parkingTimer, speed]);
+
+  // Emergency override timer effect
+  useEffect(() => {
+    if (overrideTimer > 0) {
+      const timer = setTimeout(() => {
+        setOverrideTimer(prev => {
+          if (prev === 1) {
+            // Override expires
+            setDriveLock(prevDrive => ({ ...prevDrive, emergencyOverride: false }));
+            addSafetyAlert('info', 'Emergency override expired - DriveLock reactivated');
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [overrideTimer]);
 
   const startMotionTracking = () => {
     DeviceMotion.setUpdateInterval(1000);
@@ -135,14 +148,9 @@ export default function TrackerScreen() {
   const updateDriveLockStatus = () => {
     // Simulate various sensors and conditions
     const isMoving = speed > 0;
-    const engineSound = Math.random() * 100;
-    setAudioLevel(engineSound);
     
     setDriveLock(prev => {
       const newStatus = { ...prev };
-      
-      // Engine detection based on speed and audio
-      newStatus.engineRunning = isMoving || engineSound > 60;
       
       // Distance simulation (in real app, this would use actual sensors)
       if (carLocation && userLocation) {
@@ -150,19 +158,21 @@ export default function TrackerScreen() {
         newStatus.distanceFromCar = distance;
       }
       
-      // App blocking logic
+      // App blocking logic - only block if not in emergency override
       const shouldBlockApps = 
         newStatus.isActive && 
         isMoving && 
-        newStatus.seatbeltFastened && 
-        newStatus.distanceFromCar < 3;
+        newStatus.distanceFromCar < 3 &&
+        !newStatus.emergencyOverride;
       
       if (shouldBlockApps !== newStatus.appsBlocked) {
         newStatus.appsBlocked = shouldBlockApps;
-        addSafetyAlert(
-          shouldBlockApps ? 'danger' : 'info',
-          shouldBlockApps ? 'Apps blocked - Driving detected' : 'Apps unblocked - Safe to use'
-        );
+        if (!newStatus.emergencyOverride) {
+          addSafetyAlert(
+            shouldBlockApps ? 'danger' : 'info',
+            shouldBlockApps ? 'Apps blocked - Driving detected' : 'Apps unblocked - Safe to use'
+          );
+        }
       }
       
       // Set parking timer when stopped
@@ -195,20 +205,20 @@ export default function TrackerScreen() {
   };
 
   const checkSafetyViolations = (status: DriveLockStatus) => {
-    if (status.phoneOrientation === 'facing-driver' && speed > 0) {
+    if (status.phoneOrientation === 'facing-driver' && speed > 0 && !status.emergencyOverride) {
       addSafetyAlert('warning', 'Phone facing driver while moving - Potential distraction');
-    }
-    
-    if (!status.brakePedalPressed && speed > 30) {
-      addSafetyAlert('info', 'Cruising detected - Apps remain blocked');
     }
     
     if (status.distanceFromCar > 3 && status.appsBlocked) {
       addSafetyAlert('info', 'Far from vehicle - Apps will unblock soon');
     }
+
+    if (status.emergencyOverride && speed > 0) {
+      addSafetyAlert('warning', 'Emergency override active while driving - Use with caution');
+    }
   };
 
-  const addSafetyAlert = (type: 'warning' | 'danger' | 'info', message: string) => {
+  const addSafetyAlert = (type: 'warning' | 'danger' | 'info' | 'emergency', message: string) => {
     const alert: SafetyAlert = {
       id: Math.random().toString(),
       type,
@@ -217,6 +227,32 @@ export default function TrackerScreen() {
     };
     
     setSafetyAlerts(prev => [alert, ...prev.slice(0, 4)]); // Keep last 5 alerts
+  };
+
+  const handleEmergencyOverride = () => {
+    Alert.alert(
+      '🚨 Emergency Override',
+      'This will temporarily disable DriveLock for 5 minutes. Use only in genuine emergencies.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'Confirm Override',
+          style: 'destructive',
+          onPress: () => {
+            setDriveLock(prev => ({ 
+              ...prev, 
+              emergencyOverride: true,
+              appsBlocked: false 
+            }));
+            setOverrideTimer(300); // 5 minutes
+            addSafetyAlert('emergency', 'Emergency override activated - 5 minute timer started');
+          }
+        }
+      ]
+    );
   };
 
   const requestLocationPermission = async (): Promise<void> => {
@@ -321,28 +357,15 @@ export default function TrackerScreen() {
       ...prev, 
       isActive: !prev.isActive,
       appsBlocked: false,
-      parkingTimer: 0
+      parkingTimer: 0,
+      emergencyOverride: false
     }));
+    setOverrideTimer(0);
     addSafetyAlert('info', `DriveLock ${!driveLock.isActive ? 'enabled' : 'disabled'}`);
   };
 
-  const simulateSensorChange = (sensor: string) => {
-    setDriveLock(prev => {
-      const newStatus = { ...prev };
-      switch (sensor) {
-        case 'brake':
-          newStatus.brakePedalPressed = !prev.brakePedalPressed;
-          break;
-        case 'seatbelt':
-          newStatus.seatbeltFastened = !prev.seatbeltFastened;
-          break;
-      }
-      return newStatus;
-    });
-  };
-
-  // Helper function to get alert style - FIXES THE TYPESCRIPT ERROR
-  const getAlertStyle = (alertType: 'warning' | 'danger' | 'info') => {
+  // Helper function to get alert style
+  const getAlertStyle = (alertType: 'warning' | 'danger' | 'info' | 'emergency') => {
     switch (alertType) {
       case 'danger':
         return styles.alertDanger;
@@ -350,6 +373,8 @@ export default function TrackerScreen() {
         return styles.alertWarning;
       case 'info':
         return styles.alertInfo;
+      case 'emergency':
+        return styles.alertEmergency;
       default:
         return styles.alertInfo;
     }
@@ -413,7 +438,10 @@ export default function TrackerScreen() {
               anchor={{ x: 0.5, y: 0.5 }}
             >
               <View style={styles.userMarker}>
-                <View style={[styles.userDot, { backgroundColor: driveLock.appsBlocked ? '#E74C3C' : '#1E90FF' }]} />
+                <View style={[styles.userDot, { 
+                  backgroundColor: driveLock.emergencyOverride ? '#F39C12' : 
+                                   driveLock.appsBlocked ? '#E74C3C' : '#1E90FF' 
+                }]} />
                 {isTracking && <View style={styles.pulse} />}
               </View>
             </Marker>
@@ -459,10 +487,12 @@ export default function TrackerScreen() {
         {/* DriveLock Status */}
         <View style={styles.driveLockStatus}>
           <View style={[styles.statusIndicator, { 
-            backgroundColor: driveLock.isActive ? (driveLock.appsBlocked ? '#E74C3C' : '#F39C12') : '#666'
+            backgroundColor: driveLock.emergencyOverride ? '#F39C12' :
+                            driveLock.isActive ? (driveLock.appsBlocked ? '#E74C3C' : '#F39C12') : '#666'
           }]} />
           <Text style={styles.statusText}>
-            {driveLock.isActive ? (driveLock.appsBlocked ? 'APPS BLOCKED' : 'DRIVELOCK ACTIVE') : 'DRIVELOCK OFF'}
+            {driveLock.emergencyOverride ? 'EMERGENCY OVERRIDE' :
+             driveLock.isActive ? (driveLock.appsBlocked ? 'APPS BLOCKED' : 'DRIVELOCK ACTIVE') : 'DRIVELOCK OFF'}
           </Text>
         </View>
       </View>
@@ -488,6 +518,14 @@ export default function TrackerScreen() {
               </Text>
             </View>
           )}
+
+          {overrideTimer > 0 && (
+            <View style={styles.overrideContainer}>
+              <Text style={styles.overrideText}>
+                🚨 Emergency Override: {Math.floor(overrideTimer / 60)}:{(overrideTimer % 60).toString().padStart(2, '0')}
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* Safety Sensors Grid */}
@@ -498,23 +536,17 @@ export default function TrackerScreen() {
             <Text style={styles.sensorLabel}>mph</Text>
           </View>
           
-          <TouchableOpacity 
-            style={[styles.sensorCard, driveLock.brakePedalPressed && styles.sensorActive]}
-            onPress={() => simulateSensorChange('brake')}
-          >
-            <Text style={styles.sensorIcon}>🦶</Text>
-            <Text style={styles.sensorValue}>{driveLock.brakePedalPressed ? 'ON' : 'OFF'}</Text>
-            <Text style={styles.sensorLabel}>brake pedal</Text>
-          </TouchableOpacity>
+          <View style={styles.sensorCard}>
+            <Text style={styles.sensorIcon}>🎯</Text>
+            <Text style={styles.sensorValue}>{accuracy}</Text>
+            <Text style={styles.sensorLabel}>accuracy (m)</Text>
+          </View>
           
-          <TouchableOpacity 
-            style={[styles.sensorCard, driveLock.seatbeltFastened && styles.sensorActive]}
-            onPress={() => simulateSensorChange('seatbelt')}
-          >
-            <Text style={styles.sensorIcon}>🔒</Text>
-            <Text style={styles.sensorValue}>{driveLock.seatbeltFastened ? 'ON' : 'OFF'}</Text>
-            <Text style={styles.sensorLabel}>seatbelt</Text>
-          </TouchableOpacity>
+          <View style={styles.sensorCard}>
+            <Text style={styles.sensorIcon}>📍</Text>
+            <Text style={styles.sensorValue}>{isTracking ? 'ON' : 'OFF'}</Text>
+            <Text style={styles.sensorLabel}>tracking</Text>
+          </View>
         </View>
 
         {/* Advanced Sensors */}
@@ -522,7 +554,7 @@ export default function TrackerScreen() {
           <View style={styles.sensorRow}>
             <Text style={styles.sensorRowLabel}>📱 Phone Orientation:</Text>
             <Text style={[styles.sensorRowValue, 
-              driveLock.phoneOrientation === 'facing-driver' && styles.dangerText
+              driveLock.phoneOrientation === 'facing-driver' && !driveLock.emergencyOverride && styles.dangerText
             ]}>
               {driveLock.phoneOrientation.replace('-', ' ')}
             </Text>
@@ -531,25 +563,26 @@ export default function TrackerScreen() {
           <View style={styles.sensorRow}>
             <Text style={styles.sensorRowLabel}>📏 Distance from Car:</Text>
             <Text style={[styles.sensorRowValue,
-              driveLock.distanceFromCar < 3 && styles.dangerText
+              driveLock.distanceFromCar < 3 && !driveLock.emergencyOverride && styles.dangerText
             ]}>
               {driveLock.distanceFromCar.toFixed(1)}m
             </Text>
           </View>
-          
-          <View style={styles.sensorRow}>
-            <Text style={styles.sensorRowLabel}>🔊 Engine Audio:</Text>
-            <Text style={styles.sensorRowValue}>{audioLevel.toFixed(0)}dB</Text>
-          </View>
-          
-          <View style={styles.sensorRow}>
-            <Text style={styles.sensorRowLabel}>🎯 GPS Accuracy:</Text>
-            <Text style={styles.sensorRowValue}>{accuracy}m</Text>
-          </View>
         </View>
 
+        {/* Emergency Override Button */}
+        {driveLock.isActive && driveLock.appsBlocked && !driveLock.emergencyOverride && (
+          <TouchableOpacity 
+            style={styles.emergencyButton}
+            onPress={handleEmergencyOverride}
+          >
+            <Text style={styles.emergencyButtonText}>🚨 EMERGENCY OVERRIDE</Text>
+            <Text style={styles.emergencySubtext}>Use only in genuine emergencies</Text>
+          </TouchableOpacity>
+        )}
+
         {/* Blocked Apps */}
-        {driveLock.appsBlocked && (
+        {driveLock.appsBlocked && !driveLock.emergencyOverride && (
           <View style={styles.blockedAppsCard}>
             <Text style={styles.cardTitle}>🚫 Blocked Apps</Text>
             <View style={styles.appsList}>
@@ -560,6 +593,16 @@ export default function TrackerScreen() {
                 </View>
               ))}
             </View>
+          </View>
+        )}
+
+        {/* Override Active Notice */}
+        {driveLock.emergencyOverride && (
+          <View style={styles.overrideNotice}>
+            <Text style={styles.cardTitle}>⚠️ Emergency Override Active</Text>
+            <Text style={styles.overrideNoticeText}>
+              All apps are temporarily unblocked. Please drive safely and use this only in genuine emergencies.
+            </Text>
           </View>
         )}
 
@@ -752,6 +795,20 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     textAlign: 'center',
   },
+  overrideContainer: {
+    backgroundColor: '#2a1a1a',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#F39C12',
+  },
+  overrideText: {
+    color: '#F39C12',
+    fontSize: 16,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
   sensorsGrid: {
     flexDirection: 'row',
     gap: 12,
@@ -765,10 +822,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#333',
-  },
-  sensorActive: {
-    borderColor: '#2ECC71',
-    backgroundColor: '#1a2e1a',
   },
   sensorIcon: {
     fontSize: 24,
@@ -810,6 +863,38 @@ const styles = StyleSheet.create({
   },
   dangerText: {
     color: '#E74C3C',
+  },
+  emergencyButton: {
+    backgroundColor: '#E74C3C',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#F39C12',
+  },
+  emergencyButtonText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  emergencySubtext: {
+    color: '#F39C12',
+    fontSize: 14,
+  },
+  overrideNotice: {
+    backgroundColor: '#2a2a1a',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#F39C12',
+  },
+  overrideNoticeText: {
+    color: '#F39C12',
+    fontSize: 16,
+    lineHeight: 22,
   },
   blockedAppsCard: {
     backgroundColor: '#2a1a1a',
@@ -857,6 +942,10 @@ const styles = StyleSheet.create({
   alertInfo: {
     backgroundColor: '#1a1a2a',
     borderLeftColor: '#3498DB',
+  },
+  alertEmergency: {
+    backgroundColor: '#2a1a1a',
+    borderLeftColor: '#F39C12',
   },
   alertText: {
     color: 'white',

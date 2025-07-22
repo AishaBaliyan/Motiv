@@ -31,6 +31,12 @@ export default function RootLayout() {
         }} 
       />
       <Stack.Screen 
+        name="signup" 
+        options={{ 
+          headerShown: false 
+        }} 
+      />
+      <Stack.Screen 
         name="success" 
         options={{ 
           title: 'Success',
@@ -40,7 +46,7 @@ export default function RootLayout() {
       <Stack.Screen 
         name="blank" 
         options={{ 
-          title: 'Location Tracker',
+          title: 'DriveLock Tracker',
           headerBackTitle: 'Back'
         }} 
       />
